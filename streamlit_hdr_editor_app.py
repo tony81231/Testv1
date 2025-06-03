@@ -1,55 +1,69 @@
 import streamlit as st
 import os
 from PIL import Image
-import zipfile
-import io
+import numpy as np
+import cv2
+import tempfile
 
-st.set_page_config(layout="wide")
-st.title("🏠 AI HDR Real Estate Editor")
+# Title and logo
+st.set_page_config(page_title="AI HDR Real Estate Editor", layout="wide")
+st.markdown("""
+    <h1 style='text-align: center;'>🏡 AI HDR Real Estate Editor</h1>
+""", unsafe_allow_html=True)
 
-# Sidebar Settings
+# Sidebar - Settings
 st.sidebar.header("User Settings")
 ignore_lights = st.sidebar.checkbox("Ignore ceiling lights in highlight clipping")
 style_mode = st.sidebar.radio("Style Mode", ["BB Standards", "Style-Match"])
-manual_steps = st.sidebar.text_area("Editing Steps (type manually):", height=100)
-comments = st.sidebar.text_area("Optional Comments", help="Comments for the editor (e.g. remove cables, fix wall)")
+manual_steps = st.sidebar.text_area("Editing Steps (type manually):", height=120)
+comments = st.sidebar.text_area("Optional Comments")
 
-# Upload raw bracketed images
-st.header("Upload Bracketed Raw Files")
-raw_files = st.file_uploader("Upload multiple bracketed images (JPG, PNG)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
+# Main area - Training mode
+st.markdown("## Training Mode")
+before_files = st.file_uploader("Before Images", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="before")
+after_files = st.file_uploader("After Images", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="after")
 
-# Training Mode
-st.header("Training Mode")
-st.markdown("Upload before and after examples to train the style matcher.")
-before_imgs = st.file_uploader("Before Images", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="before")
-after_imgs = st.file_uploader("After Images", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="after")
+# Raw uploads
+st.markdown("## Raw HDR Brackets")
+raw_uploads = st.file_uploader("Upload RAW bracketed images (3+ exposure levels)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="raw")
 
-# Process button
+# Process
 if st.button("Begin Processing"):
-    if not raw_files:
-        st.warning("Please upload raw bracketed images to process.")
+    if not raw_uploads:
+        st.warning("Please upload raw bracketed images to begin processing.")
     else:
         with st.spinner("Processing images..."):
-            # Simulate HDR processing logic
-            output_images = []
-            for file in raw_files:
-                image = Image.open(file)
-                enhanced = image.convert("RGB")
-                output_images.append(enhanced)
+            temp_dir = tempfile.mkdtemp()
+            merged_img = None
 
-            # Output preview
-            st.subheader("Processed Previews")
-            for img in output_images:
-                st.image(img, use_column_width=True)
+            # Save uploaded raw images temporarily
+            paths = []
+            for f in raw_uploads:
+                path = os.path.join(temp_dir, f.name)
+                with open(path, 'wb') as out:
+                    out.write(f.read())
+                paths.append(path)
 
-            # Save to ZIP
-            zip_io = io.BytesIO()
-            with zipfile.ZipFile(zip_io, mode="w") as zipf:
-                for i, img in enumerate(output_images):
-                    img_bytes = io.BytesIO()
-                    img.save(img_bytes, format='JPEG')
-                    zipf.writestr(f"output_image_{i+1}.jpg", img_bytes.getvalue())
-            zip_io.seek(0)
+            # Merge HDR basic fallback
+            try:
+                images = [cv2.imread(p) for p in paths]
+                images = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in images if img is not None]
 
-            st.success("✅ Processing complete!")
-            st.download_button("📦 Download All Output Images", data=zip_io, file_name="edited_hdr_output.zip")
+                if len(images) >= 2:
+                    merge_mertens = cv2.createMergeMertens()
+                    blended = merge_mertens.process(images)
+                    merged_img = (blended * 255).astype(np.uint8)
+                else:
+                    st.error("At least 2 valid bracket images required.")
+            except Exception as e:
+                st.error(f"HDR merge failed: {e}")
+
+            # Post-processing placeholder
+            if merged_img is not None:
+                out_path = os.path.join(temp_dir, "edited_output.jpg")
+                Image.fromarray(merged_img).save(out_path)
+                st.image(merged_img, caption="Edited Output", use_container_width=True)
+                with open(out_path, "rb") as f:
+                    st.download_button("Download Final Image", f, file_name="edited_HDR_output.jpg")
+            else:
+                st.error("No image was processed.")
