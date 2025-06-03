@@ -1,9 +1,10 @@
-# AI HDR Real Estate Editor
+# AI HDR Debug Editor
 
-Streamlit app for merging bracketed HDR photos, performing QC, and AI-assisted edits.
+A debug-focused Streamlit app to safely test HDR image processing.
+Logs every step, checks image validity, and prevents silent crashes.
 
-## Run Locally
+## To run locally
 ```bash
 pip install -r requirements.txt
-streamlit run streamlit_hdr_editor_app.py
+streamlit run streamlit_hdr_debug_app.py
 ```
