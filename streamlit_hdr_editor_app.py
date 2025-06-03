@@ -1,3 +1,4 @@
+
 import streamlit as st
 import os
 from PIL import Image
@@ -8,7 +9,7 @@ import tempfile
 # Title and logo
 st.set_page_config(page_title="AI HDR Real Estate Editor", layout="wide")
 st.markdown("""
-    <h1 style='text-align: center;'>🏡 AI HDR Real Estate Editor</h1>
+    <h1 style='text-align: center;'>🏠 AI HDR Real Estate Editor</h1>
 """, unsafe_allow_html=True)
 
 # Sidebar - Settings
