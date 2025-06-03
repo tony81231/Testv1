@@ -1,7 +1,9 @@
 # AI HDR Real Estate Editor
 
-A Streamlit app for HDR merging, QC, fixing, and style-matching.
+Streamlit app for merging bracketed HDR photos, performing QC, and AI-assisted edits.
 
-## Run
+## Run Locally
 ```bash
+pip install -r requirements.txt
 streamlit run streamlit_hdr_editor_app.py
+```
