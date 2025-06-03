@@ -1,73 +1,101 @@
 import streamlit as st
-import cv2
-import numpy as np
-from PIL import Image
 import os
+from PIL import Image
+import io
 import json
+import zipfile
+import shutil
 
-CONFIG_FILE = "user_config.json"
+# -----------------------------
+# Config
+# -----------------------------
+CONFIG_PATH = "user_config.json"
 def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "r") as f:
             return json.load(f)
-    return {"ignore_ceiling_lights": False}
+    return {"ignore_ceiling_lights": False, "editing_steps": "", "comments": "", "style_mode": "BB Standards"}
 
 def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=4)
-
-st.set_page_config(page_title="AI HDR Editor", layout="wide")
-st.title("AI HDR Real Estate Editor")
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f)
 
 config = load_config()
 
-st.sidebar.title("User Settings")
-config['ignore_ceiling_lights'] = st.sidebar.checkbox("Ignore ceiling lights in highlight clipping", value=config.get('ignore_ceiling_lights', False))
+# -----------------------------
+# UI
+# -----------------------------
+st.set_page_config(page_title="AI HDR Editor", layout="wide")
+st.title("🏠 AI HDR Real Estate Editor")
+
+st.sidebar.header("User Settings")
+config["ignore_ceiling_lights"] = st.sidebar.checkbox("Ignore ceiling lights in highlight clipping", value=config.get("ignore_ceiling_lights", False))
+
+style_mode = st.sidebar.radio("Style Mode", ["BB Standards", "Style-Match"], index=0 if config.get("style_mode") == "BB Standards" else 1)
+config["style_mode"] = style_mode
+
+editing_steps = st.sidebar.text_area("Editing Steps (type manually):", value=config.get("editing_steps", ""))
+config["editing_steps"] = editing_steps
+
+comments = st.text_area("Optional Comments", value=config.get("comments", ""))
+config["comments"] = comments
+
 save_config(config)
 
-st.markdown("🛠️ <i>All 17 client editing steps will be applied automatically based on AI logic.</i>", unsafe_allow_html=True)
-
-st.subheader("Upload Raw Bracketed Files")
-uploaded_files = st.file_uploader("Upload HDR bracketed images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-
-st.subheader("Optional Comments")
-user_comments = st.text_area("Comments for the editor (e.g. remove cables, fix wall)")
-
+# -----------------------------
+# Training Mode
+# -----------------------------
 st.subheader("Training Mode")
-st.markdown("Upload before and after examples to train the style matcher.")
-before_training = st.file_uploader("Before Images", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="before")
-after_training = st.file_uploader("After Images", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="after")
+before_images = st.file_uploader("Before Images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+after_images = st.file_uploader("After Images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
-if st.button("🚀 Run HDR Editor"):
-    if not uploaded_files:
-        st.warning("Please upload at least one HDR image.")
+# -----------------------------
+# Process Images
+# -----------------------------
+if st.button("Begin Processing"):
+    if not before_images:
+        st.warning("Please upload at least one 'before' image.")
     else:
-        st.success("Processing started. This is where HDR merge, QC, and fixing logic will run.")
-        for uploaded_file in uploaded_files:
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            image = cv2.imdecode(file_bytes, 1)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            st.image(image, caption=f"Uploaded: {uploaded_file.name}", use_column_width=True)
-        output_image = Image.fromarray(image)
-        output_path = "output_final.jpg"
-        output_image.save(output_path)
-        with open(output_path, "rb") as f:
-            st.download_button("📥 Download Final Image", f, file_name="edited_hdr.jpg", mime="image/jpeg")
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
 
-        if config['ignore_ceiling_lights']:
-            st.write("\n- Ceiling light highlight clipping will be ignored.")
+        with st.spinner("Processing images..."):
+            for i, uploaded_file in enumerate(before_images):
+                image = Image.open(uploaded_file).convert("RGB")
+                if config["style_mode"] == "Style-Match" and after_images and i < len(after_images):
+                    try:
+                        reference = Image.open(after_images[i]).convert("RGB")
+                        styled_image = Image.blend(image, reference, alpha=0.5)
+                    except Exception:
+                        styled_image = image
+                else:
+                    styled_image = image
 
-        if user_comments:
-            st.write(f"\n**User Comments:** {user_comments}")
+                styled_image.save(f"{output_dir}/edited_{i+1}.jpg")
 
-if st.button("🧠 Train Style from Examples"):
-    if before_training and after_training:
-        os.makedirs("training_data", exist_ok=True)
-        for i, (b, a) in enumerate(zip(before_training, after_training)):
-            with open(f"training_data/before_{i}.jpg", "wb") as bf:
-                bf.write(b.read())
-            with open(f"training_data/after_{i}.jpg", "wb") as af:
-                af.write(a.read())
-        st.success(f"Saved {len(before_training)} BEFORE and {len(after_training)} AFTER images for training.")
-    else:
-        st.warning("Please upload both before and after training images.")
+            # Create ZIP
+            zip_path = "processed_images.zip"
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for filename in os.listdir(output_dir):
+                    zipf.write(os.path.join(output_dir, filename), arcname=filename)
+
+        st.success("✅ Processing complete!")
+        with open(zip_path, "rb") as f:
+            st.download_button("Download ZIP", data=f, file_name="processed_images.zip", mime="application/zip")
+
+# -----------------------------
+# Preview (Optional)
+# -----------------------------
+if before_images:
+    st.subheader("📸 Preview Before Images")
+    cols = st.columns(min(4, len(before_images)))
+    for i, file in enumerate(before_images):
+        img = Image.open(file)
+        cols[i % len(cols)].image(img, caption=file.name, use_column_width=True)
+
+if after_images:
+    st.subheader("🎯 Preview After Images")
+    cols = st.columns(min(4, len(after_images)))
+    for i, file in enumerate(after_images):
+        img = Image.open(file)
+        cols[i % len(cols)].image(img, caption=file.name, use_column_width=True)
